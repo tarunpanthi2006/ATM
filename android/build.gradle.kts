@@ -1,3 +1,15 @@
+plugins {
+    // Add this line to link the Google Services plugin
+    id("com.google.gms.google-services") version "4.4.1" apply false
+}
+
+// Your existing code starts here...
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
 allprojects {
     repositories {
         google()

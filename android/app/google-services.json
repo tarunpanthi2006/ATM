@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "401885461864",
+    "project_id": "campusassist-bce04",
+    "storage_bucket": "campusassist-bce04.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:401885461864:android:c2808a55c81aa5334e6add",
+        "android_client_info": {
+          "package_name": "com.example.flutter_application_1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD2EJOMJBJ-5JZi-lFaqz24aIz6oTEIav8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

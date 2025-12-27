@@ -1,12 +1,26 @@
+import 'dart:ui';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
-import 'dart:ui'; // Required for ImageFilter
-import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
+import 'package:firebase_core/firebase_core.dart';
 
-void main() => runApp(CampusAssistApp());
+// Note: Ensure you have called Firebase.initializeApp() in your main if using real hardware
+void main() async {
+  // 1. You MUST have this line first
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  try {
+    // 2. This starts the connection to your google-services.json
+    await Firebase.initializeApp(); 
+  } catch (e) {
+    print("Firebase init error: $e");
+  }
+  
+  runApp(CampusAssistApp());
+}
 
 class CampusAssistApp extends StatelessWidget {
   @override
@@ -14,13 +28,125 @@ class CampusAssistApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0F111A), // Sleeker deep dark
+        scaffoldBackgroundColor: const Color(0xFF0F111A),
       ),
-      home: CommunicationScreen(),
+      home: RoleSelectionScreen(),
     );
   }
 }
 
+// --- NEW: ROLE SELECTION SCREEN ---
+class RoleSelectionScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text("CampusAssist", style: GoogleFonts.poppins(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
+            Text("Digital Bridge for Accessibility", style: GoogleFonts.poppins(fontSize: 14, color: Colors.white54)),
+            const SizedBox(height: 60),
+            _roleButton(context, "I am a Student", Icons.person, Colors.tealAccent, CommunicationScreen()),
+            const SizedBox(height: 20),
+            _roleButton(context, "I am a Caretaker", Icons.medical_services, Colors.orangeAccent, CaretakerScreen()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _roleButton(BuildContext context, String title, IconData icon, Color color, Widget nextScreen) {
+    return ElevatedButton.icon(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color.withOpacity(0.05),
+        side: BorderSide(color: color, width: 2),
+        minimumSize: const Size(280, 75),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      ),
+      icon: Icon(icon, color: color, size: 28),
+      label: Text(title, style: GoogleFonts.poppins(color: color, fontSize: 18, fontWeight: FontWeight.w600)),
+      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => nextScreen)),
+    );
+  }
+}
+
+// --- NEW: CARETAKER SCREEN (PHASE 1) ---
+class CaretakerScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("Responder Dashboard", style: GoogleFonts.poppins()),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('active_emergencies')
+            .where('status', isEqualTo: 'HELP_NEEDED')
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+
+          var docs = snapshot.data!.docs;
+          if (docs.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.check_circle_outline, color: Colors.greenAccent, size: 60),
+                  const SizedBox(height: 10),
+                  Text("All students are safe", style: GoogleFonts.poppins(color: Colors.white54)),
+                ],
+              ),
+            );
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(20),
+            itemCount: docs.length,
+            itemBuilder: (context, index) {
+              var data = docs[index].data() as Map<String, dynamic>;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 15),
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+                        const SizedBox(width: 10),
+                        Text("EMERGENCY: ${data['student_name']}", style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 15),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, minimumSize: const Size(double.infinity, 50)),
+                      onPressed: () {
+                        FirebaseFirestore.instance.collection('active_emergencies').doc(docs[index].id).update({
+                          'status': 'ACCEPTED',
+                        });
+                      },
+                      child: const Text("I AM COMING", style: TextStyle(fontWeight: FontWeight.bold)),
+                    )
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// --- STUDENT COMMUNICATION SCREEN (YOUR ORIGINAL CODE + IMPROVEMENTS) ---
 class CommunicationScreen extends StatefulWidget {
   @override
   _CommunicationScreenState createState() => _CommunicationScreenState();
@@ -29,6 +155,7 @@ class CommunicationScreen extends StatefulWidget {
 class _CommunicationScreenState extends State<CommunicationScreen> {
   final FlutterTts flutterTts = FlutterTts();
   String lastSpoken = "Waiting for input...";
+  bool isEmergencyActive = false;
 
   final List<Map<String, dynamic>> phrases = [
     {'icon': Icons.water_drop, 'label': 'Water', 'msg': 'I need water', 'color': Colors.blueAccent},
@@ -46,27 +173,15 @@ class _CommunicationScreenState extends State<CommunicationScreen> {
     await flutterTts.setPitch(1.2);
     await flutterTts.speak(text);
   }
+
   Future<Position> _determinePosition() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return Future.error('Location services are disabled.');
-    }
-
-    permission = await Geolocator.checkPermission();
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return Future.error('Location services are disabled.');
+    LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        return Future.error('Location permissions are denied');
-      }
+      if (permission == LocationPermission.denied) return Future.error('Location permissions are denied');
     }
-    
-    if (permission == LocationPermission.deniedForever) {
-      return Future.error('Location permissions are permanently denied.');
-    } 
-
     return await Geolocator.getCurrentPosition();
   }
 
@@ -75,53 +190,28 @@ class _CommunicationScreenState extends State<CommunicationScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // Subtle Glow at the bottom (Replacing the green top one)
-          Positioned(
-            bottom: -150,
-            right: -50,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.blueAccent.withOpacity(0.05),
-              ),
-            ),
-          ),
-          
           SafeArea(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildHeader(),
-                
                 Expanded(
                   child: AnimationLimiter(
                     child: GridView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        childAspectRatio: 0.85,
+                        crossAxisCount: 3, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.85,
                       ),
                       itemCount: phrases.length,
                       itemBuilder: (context, index) {
                         return AnimationConfiguration.staggeredGrid(
-                          position: index,
-                          duration: const Duration(milliseconds: 500),
-                          columnCount: 3,
-                          child: ScaleAnimation(
-                            child: FadeInAnimation(
-                              child: _buildGlassCard(index),
-                            ),
-                          ),
+                          position: index, duration: const Duration(milliseconds: 500), columnCount: 3,
+                          child: ScaleAnimation(child: FadeInAnimation(child: _buildGlassCard(index))),
                         );
                       },
                     ),
                   ),
                 ),
-
                 _buildSOSButton(),
               ],
             ),
@@ -137,42 +227,18 @@ class _CommunicationScreenState extends State<CommunicationScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("Hello there,", style: GoogleFonts.poppins(color: Colors.white60, fontSize: 14)),
-                  Text("Assistive Voice", style: GoogleFonts.poppins(fontSize: 26, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              const Icon(Icons.account_circle_outlined, color: Colors.white38, size: 30),
-            ],
-          ),
+          Text("Hello there,", style: GoogleFonts.poppins(color: Colors.white60, fontSize: 14)),
+          Text("Assistive Voice", style: GoogleFonts.poppins(fontSize: 26, fontWeight: FontWeight.bold)),
           const SizedBox(height: 15),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(15),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(15),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.volume_up, color: Colors.tealAccent, size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(lastSpoken, 
-                        style: GoogleFonts.poppins(color: Colors.tealAccent, fontStyle: FontStyle.italic, fontSize: 13)),
-                    ),
-                  ],
-                ),
-              ),
+          Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
+            child: Row(
+              children: [
+                const Icon(Icons.volume_up, color: Colors.tealAccent, size: 20),
+                const SizedBox(width: 10),
+                Expanded(child: Text(lastSpoken, style: GoogleFonts.poppins(color: Colors.tealAccent, fontSize: 13))),
+              ],
             ),
           ),
         ],
@@ -184,32 +250,19 @@ class _CommunicationScreenState extends State<CommunicationScreen> {
     var p = phrases[index];
     return GestureDetector(
       onTap: () => _speak(p['msg']),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.03),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white10),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: p['color'].withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(p['icon'], color: p['color'], size: 24),
-                ),
-                const SizedBox(height: 8),
-                Text(p['label'], style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.white70)),
-              ],
-            ),
-          ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.03),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white10),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(p['icon'], color: p['color'], size: 24),
+            const SizedBox(height: 8),
+            Text(p['label'], style: GoogleFonts.poppins(fontSize: 12, color: Colors.white70)),
+          ],
         ),
       ),
     );
@@ -217,56 +270,33 @@ class _CommunicationScreenState extends State<CommunicationScreen> {
 
   Widget _buildSOSButton() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 10, 24, 24),
-      child: Column(
-        children: [
-          const Text("In case of emergency, tap the button below", 
-            style: TextStyle(color: Colors.white38, fontSize: 10)),
-          const SizedBox(height: 8),
-          Container(
-            height: 65,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              gradient: const LinearGradient(colors: [Color(0xFFFF416C), Color(0xFFFF4B2B)]),
-              boxShadow: [
-                BoxShadow(color: Colors.red.withOpacity(0.3), blurRadius: 15, spreadRadius: 1, offset: const Offset(0, 4))
-              ],
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(20),
-                // --- UPDATED ONTAP LOGIC ---
-                onTap: () async {
-                _speak("Emergency initiated. Alerting caretakers.");
-  
-                try {
-                // 1. Get the GPS Location (You already built this part!)
-               position = await _determinePosition();
-    
-                  // 2. Send to Firebase (The New Cloud Part)
-                  // This creates a new entry in a collection called 'active_emergencies'
-    await FirebaseFirestore.instance.collection('active_emergencies').add({
-      'student_name': 'User_Demo', // You can change this to a real name later
-      'latitude': position.latitude,
-      'longitude': position.longitude,
-      'status': 'HELP_NEEDED',
-      'timestamp': FieldValue.serverTimestamp(), // This saves the exact time
-    });
-
-    setState(() {
-      lastSpoken = "SOS Sent! Lat: ${position.latitude.toStringAsFixed(2)}, Lon: ${position.longitude.toStringAsFixed(2)}";
-    });
-
-  } catch (e) {
-    print("Cloud Error: $e");
-    _speak("Check your internet connection.");
-  }
-},
-              ),
-            ),
+      padding: const EdgeInsets.all(24.0),
+      child: InkWell(
+        onTap: () async {
+          _speak("Emergency initiated. Alerting caretakers.");
+          try {
+            Position position = await _determinePosition();
+            await FirebaseFirestore.instance.collection('active_emergencies').add({
+              'student_name': 'Rahul (Demo)',
+              'latitude': position.latitude,
+              'longitude': position.longitude,
+              'status': 'HELP_NEEDED',
+              'timestamp': FieldValue.serverTimestamp(),
+            });
+            setState(() => lastSpoken = "SOS Sent! Waiting for responder...");
+          } catch (e) {
+            _speak("Error sending SOS.");
+          }
+        },
+        child: Container(
+          height: 65,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: const LinearGradient(colors: [Color(0xFFFF416C), Color(0xFFFF4B2B)]),
           ),
-        ],
+          child: Center(child: Text("EMERGENCY SOS", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18))),
+        ),
       ),
     );
   }
